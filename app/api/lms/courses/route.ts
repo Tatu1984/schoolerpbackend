@@ -16,6 +16,7 @@ import {
   courseInclude,
   courseToClient,
   resolveInstructor,
+  instructorNotFoundMessage,
   parseOptionalDate,
   isUniqueViolation,
 } from './helpers'
@@ -116,7 +117,12 @@ export const POST = withApiHandler(
         return validationErrorResponse({ teacherId: ['Invalid teacher for this school'] })
       }
     } else if (typeof body.instructor === 'string' && body.instructor.trim()) {
-      teacherId = (await resolveInstructor(body.instructor, schoolId)) ?? null
+      const resolved = await resolveInstructor(body.instructor, schoolId)
+      if (resolved === undefined) {
+        // There is no free-text column: saving would silently drop the name
+        return validationErrorResponse({ instructor: [instructorNotFoundMessage(body.instructor)] })
+      }
+      teacherId = resolved
     }
 
     try {

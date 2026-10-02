@@ -132,14 +132,44 @@ export const POST = withApiHandler(
       }
     }
 
-    // Create order with items
-    const { items, ...orderData } = data!
+    // Every item must be an available menu item of the student's school
+    const student = await prisma.student.findUnique({
+      where: { id: data!.studentId },
+      select: { schoolId: true },
+    })
+    if (!student) {
+      return validationErrorResponse({ studentId: ['Student not found'] })
+    }
+    const menuItemIds = Array.from(new Set(data!.items.map((item) => item.menuItemId)))
+    const menuItems = await prisma.menuItem.count({
+      where: { id: { in: menuItemIds }, schoolId: student.schoolId, isActive: true },
+    })
+    if (menuItems !== menuItemIds.length) {
+      return validationErrorResponse({ items: ['One or more menu items were not found'] })
+    }
 
+    const duplicate = await prisma.canteenOrder.findUnique({
+      where: { orderNumber: data!.orderNumber },
+      select: { id: true },
+    })
+    if (duplicate) {
+      return validationErrorResponse({ orderNumber: ['Order number already exists'] })
+    }
+
+    // CanteenOrder has no paymentMode column: only persist fields the model has
     const order = await prisma.canteenOrder.create({
       data: {
-        ...orderData,
+        orderNumber: data!.orderNumber,
+        studentId: data!.studentId,
+        totalAmount: data!.totalAmount,
+        status: data!.status,
+        notes: data!.notes,
         items: {
-          create: items,
+          create: data!.items.map((item) => ({
+            menuItemId: item.menuItemId,
+            quantity: item.quantity,
+            price: item.price,
+          })),
         },
       },
       include: {

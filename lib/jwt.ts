@@ -10,6 +10,8 @@ export interface TokenUser {
   role: string
   schoolId: string
   schoolName?: string
+  // Matches User.tokenVersion at the time of issue
+  tokenVersion: number
 }
 
 export const ACCESS_TOKEN_TTL_SECONDS = parseInt(process.env.ACCESS_TOKEN_TTL_SECONDS || `${8 * 60 * 60}`, 10)
@@ -37,8 +39,8 @@ export function signAccessToken(user: TokenUser) {
   return sign({ ...claims, type: 'access' }, id, ACCESS_TOKEN_TTL_SECONDS)
 }
 
-export function signRefreshToken(userId: string) {
-  return sign({ type: 'refresh' }, userId, REFRESH_TOKEN_TTL_SECONDS)
+export function signRefreshToken(userId: string, tokenVersion: number) {
+  return sign({ type: 'refresh', tokenVersion }, userId, REFRESH_TOKEN_TTL_SECONDS)
 }
 
 export async function verifyAccessToken(token: string): Promise<TokenUser | null> {
@@ -52,16 +54,18 @@ export async function verifyAccessToken(token: string): Promise<TokenUser | null
       role: payload.role as string,
       schoolId: payload.schoolId as string,
       schoolName: payload.schoolName as string | undefined,
+      tokenVersion: typeof payload.tokenVersion === 'number' ? payload.tokenVersion : 0,
     }
   } catch {
     return null
   }
 }
 
-export async function verifyRefreshToken(token: string): Promise<string | null> {
+export async function verifyRefreshToken(token: string): Promise<{ userId: string; tokenVersion: number } | null> {
   try {
     const { payload } = await jwtVerify(token, secret(), { algorithms: ['HS256'] })
-    return payload.type === 'refresh' && payload.sub ? payload.sub : null
+    if (payload.type !== 'refresh' || !payload.sub) return null
+    return { userId: payload.sub, tokenVersion: typeof payload.tokenVersion === 'number' ? payload.tokenVersion : 0 }
   } catch {
     return null
   }

@@ -7,7 +7,7 @@ const publicRoutes = ['/api/health', '/api/auth/login', '/api/auth/refresh', '/a
 
 // Students and parents may only call the portal and their own auth endpoints
 const portalRoles = ['STUDENT', 'PARENT']
-const portalRoutes = ['/api/portal', '/api/auth']
+const portalRoutes = ['/api/portal', '/api/auth', '/api/account']
 
 // Routes restricted to specific staff roles (finer checks live in the handlers)
 const roleRoutes: Record<string, string[]> = {

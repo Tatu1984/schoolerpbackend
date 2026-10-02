@@ -2,6 +2,7 @@ import { hash } from 'bcryptjs'
 import prisma from './prisma'
 
 // Portal logins are created automatically when a student is admitted.
+// The initial password is temporary: the user must choose their own at first sign-in.
 // Student: password = date of birth as DDMMYYYY. Parent: password = last 10 digits of phone.
 
 function ddmmyyyy(d: Date) {
@@ -33,6 +34,7 @@ export async function ensureStudentUser(studentId: string) {
       firstName: student.firstName,
       lastName: student.lastName,
       role: 'STUDENT',
+      mustChangePassword: true,
     },
   })
   await prisma.student.update({ where: { id: student.id }, data: { userId: user.id } })
@@ -68,6 +70,7 @@ export async function ensureGuardianUser(guardianId: string) {
       firstName: guardian.firstName,
       lastName: guardian.lastName,
       role: 'PARENT',
+      mustChangePassword: true,
     },
   })
   await prisma.guardian.update({ where: { id: guardian.id }, data: { userId: user.id } })

@@ -1,10 +1,10 @@
 import { NextRequest } from 'next/server'
 import prisma from '@/lib/prisma'
+import { ensureStudentUser, ensureGuardianUser } from '@/lib/accounts'
 import {
   withApiHandler,
   successResponse,
   errorResponse,
-  getSchoolFilter,
   AuthenticatedSession,
 } from '@/lib/api-utils'
 
@@ -18,6 +18,67 @@ interface BulkUploadResponse {
 
 interface CSVRow {
   [key: string]: string
+}
+
+/** Split CSV text into rows of fields. Handles quoted fields ("12, Main St"), "" escapes and CRLF. */
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = []
+  let row: string[] = []
+  let field = ''
+  let quoted = false
+  const input = text.replace(/^\uFEFF/, '')
+
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i]
+    if (quoted) {
+      if (ch === '"') {
+        if (input[i + 1] === '"') {
+          field += '"'
+          i++
+        } else {
+          quoted = false
+        }
+      } else {
+        field += ch
+      }
+    } else if (ch === '"' && field.trim() === '') {
+      field = ''
+      quoted = true
+    } else if (ch === ',') {
+      row.push(field.trim())
+      field = ''
+    } else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && input[i + 1] === '\n') i++
+      row.push(field.trim())
+      rows.push(row)
+      row = []
+      field = ''
+    } else {
+      field += ch
+    }
+  }
+  row.push(field.trim())
+  rows.push(row)
+
+  return rows.filter((r) => r.some((value) => value !== ''))
+}
+
+/** Accepts YYYY-MM-DD (the template format) and DD/MM/YYYY or DD-MM-YYYY. */
+function parseCsvDate(value: string): Date | null {
+  let match = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(value)
+  let parts: [number, number, number] | null = null
+  if (match) {
+    parts = [Number(match[1]), Number(match[2]), Number(match[3])]
+  } else {
+    match = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(value)
+    if (match) parts = [Number(match[3]), Number(match[2]), Number(match[1])]
+  }
+  if (!parts) return null
+  const [year, month, day] = parts
+  const date = new Date(Date.UTC(year, month - 1, day))
+  const valid =
+    date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+  return valid ? date : null
 }
 
 export const POST = withApiHandler(
@@ -36,18 +97,15 @@ export const POST = withApiHandler(
 
       // Read CSV content
       const text = await file.text()
-      const lines = text.split('\n').filter(line => line.trim())
+      const lines = parseCsv(text)
 
       if (lines.length < 2) {
         return errorResponse('No data rows found in CSV file', 400)
       }
 
-      const headers = lines[0].split(',').map(h => h.trim())
+      const headers = lines[0]
       const errors: string[] = []
       let created = 0
-
-      // Get school filter based on user role
-      const schoolFilter = getSchoolFilter(session)
 
       let school
       if (session.user.role === 'SUPER_ADMIN') {
@@ -64,15 +122,10 @@ export const POST = withApiHandler(
         return errorResponse('School not found. Please ensure a school is set up.', 400)
       }
 
-      // Get current academic year
-      const academicYear = await prisma.academicYear.findFirst({
-        where: { schoolId: school.id, isCurrent: true }
-      })
-
       // Process each row
       for (let i = 1; i < lines.length; i++) {
         try {
-          const values = lines[i].split(',').map(v => v.trim())
+          const values = lines[i]
           const row: CSVRow = {}
           headers.forEach((header, index) => {
             row[header] = values[index] || ''
@@ -106,7 +159,17 @@ export const POST = withApiHandler(
           })
 
           if (!classRecord) {
-            errors.push(`Row ${i + 1}: Class ${row.className} not found`)
+            errors.push(`Row ${i + 1}: Class ${row.className || '(blank)'} not found`)
+            continue
+          }
+
+          const dateOfBirth = parseCsvDate(row.dateOfBirth)
+          if (!dateOfBirth) {
+            errors.push(
+              row.dateOfBirth
+                ? `Row ${i + 1}: Invalid dateOfBirth "${row.dateOfBirth}" (use YYYY-MM-DD)`
+                : `Row ${i + 1}: dateOfBirth is required (YYYY-MM-DD)`
+            )
             continue
           }
 
@@ -119,6 +182,10 @@ export const POST = withApiHandler(
                 name: row.sectionName
               }
             })
+            if (!section) {
+              errors.push(`Row ${i + 1}: Section ${row.sectionName} not found in ${classRecord.name}`)
+              continue
+            }
           }
 
           // Validate gender
@@ -133,7 +200,7 @@ export const POST = withApiHandler(
             : null
 
           // Create student
-          await prisma.student.create({
+          const student = await prisma.student.create({
             data: {
               schoolId: school.id,
               classId: classRecord.id,
@@ -141,7 +208,7 @@ export const POST = withApiHandler(
               admissionNumber: row.admissionNumber,
               firstName: row.firstName,
               lastName: row.lastName,
-              dateOfBirth: row.dateOfBirth ? new Date(row.dateOfBirth) : new Date(),
+              dateOfBirth,
               gender,
               bloodGroup,
               phone: row.phone || null,
@@ -163,13 +230,30 @@ export const POST = withApiHandler(
                   isPrimary: true
                 }] : []
               }
-            }
+            },
+            include: { guardians: { select: { id: true } } }
           })
 
           created++
+
+          // Same portal logins a single admission creates (student + parent)
+          try {
+            for (const guardian of student.guardians) {
+              await ensureGuardianUser(guardian.id)
+            }
+            await ensureStudentUser(student.id)
+          } catch (accountError) {
+            console.error('Bulk upload: portal login not created for', row.admissionNumber, accountError)
+            errors.push(`Row ${i + 1}: Student created, but the portal login could not be set up`)
+          }
         } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-          errors.push(`Row ${i + 1}: ${errorMessage}`)
+          console.error('Bulk upload row failed:', error)
+          const code = (error as { code?: string } | null)?.code
+          errors.push(
+            code === 'P2002'
+              ? `Row ${i + 1}: Admission number already exists`
+              : `Row ${i + 1}: Could not be saved - check the values in this row`
+          )
         }
       }
 

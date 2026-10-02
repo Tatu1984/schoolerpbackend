@@ -79,6 +79,10 @@ export const POST = withApiHandler(
       return validationErrorResponse({ examId: ['Exam not found'] })
     }
 
+    if (data.score > exam.maxScore) {
+      return validationErrorResponse({ score: [`Score cannot exceed the exam's maximum of ${exam.maxScore}`] })
+    }
+
     // Verify student exists
     const student = await prisma.student.findFirst({
       where: {

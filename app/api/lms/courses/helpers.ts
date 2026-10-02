@@ -40,6 +40,10 @@ export async function resolveInstructor(instructor: string, schoolId: string) {
   return candidates.length === 1 ? candidates[0].id : undefined
 }
 
+export function instructorNotFoundMessage(instructor: string) {
+  return `No single active staff member is named "${instructor.trim()}". Enter the full name exactly as it appears under Staff, or leave Instructor blank.`
+}
+
 export function parseOptionalDate(value: unknown): Date | null | 'invalid' {
   if (value === undefined || value === null || value === '') return null
   const date = new Date(value as string)

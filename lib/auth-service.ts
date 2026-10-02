@@ -21,12 +21,25 @@ export async function issueTokens(userId: string) {
     role: user.role,
     schoolId: user.schoolId,
     schoolName: user.school.name,
+    tokenVersion: user.tokenVersion,
   }
 
   return {
-    user: { ...profile, firstName: user.firstName, lastName: user.lastName, phone: user.phone, isActive: user.isActive },
+    user: {
+      id: profile.id,
+      email: profile.email,
+      name: profile.name,
+      role: profile.role,
+      schoolId: profile.schoolId,
+      schoolName: profile.schoolName,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      phone: user.phone,
+      isActive: user.isActive,
+      mustChangePassword: user.mustChangePassword,
+    },
     accessToken: await signAccessToken(profile),
-    refreshToken: await signRefreshToken(user.id),
+    refreshToken: await signRefreshToken(user.id, user.tokenVersion),
     tokenType: 'Bearer',
     expiresIn: ACCESS_TOKEN_TTL_SECONDS,
     refreshExpiresIn: REFRESH_TOKEN_TTL_SECONDS,

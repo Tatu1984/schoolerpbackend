@@ -13,6 +13,7 @@ import {
   courseInclude,
   courseToClient,
   resolveInstructor,
+  instructorNotFoundMessage,
   parseOptionalDate,
   isUniqueViolation,
 } from '../helpers'
@@ -99,9 +100,10 @@ export const PUT = withApiHandler(
     } else if (typeof body.instructor === 'string') {
       const current = courseToClient(existing).instructor
       if (body.instructor.trim() !== current) {
-        // null clears the teacher; undefined (no matching staff) leaves it as is
+        // null clears the teacher; undefined means no (single) matching staff member
         const teacherId = await resolveInstructor(body.instructor, schoolId)
         if (teacherId !== undefined) data.teacherId = teacherId
+        else errors.instructor = [instructorNotFoundMessage(body.instructor)]
       }
     }
 

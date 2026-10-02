@@ -12,15 +12,27 @@ Authenticated calls send `Authorization: Bearer <accessToken>`. `401` means the 
 | POST | `/auth/login` | none | `{ email, password }` | `{ user, accessToken, refreshToken, tokenType, expiresIn, refreshExpiresIn }` |
 | POST | `/auth/refresh` | none | `{ refreshToken }` | same as login (new token pair) |
 | GET | `/auth/me` | any | | user profile |
-| POST | `/auth/change-password` | any | `{ currentPassword, newPassword }` (min 8 chars) | `{ message }` |
+| POST | `/auth/change-password` | any | `{ currentPassword, newPassword }` | `{ message, user, accessToken, refreshToken, ... }` |
+| POST | `/auth/logout-all` | any | | `{ message }` |
 | GET | `/health` | none | | `{ status, database }` |
 
-`user` is `{ id, email, name, firstName, lastName, phone, role, schoolId, schoolName, isActive }`.
+`user` is `{ id, email, name, firstName, lastName, phone, role, schoolId, schoolName, isActive, mustChangePassword }`.
 Access tokens last 8 hours and refresh tokens 30 days by default (`ACCESS_TOKEN_TTL_SECONDS`, `REFRESH_TOKEN_TTL_SECONDS`).
 
-Portal logins are created automatically when a student is admitted:
-- student: password is the date of birth as `DDMMYYYY`
+Rules clients must handle:
+
+- **Rate limiting.** Five failed sign-ins for one email (or thirty from one IP) within 15 minutes lock further attempts for 15 minutes: `429` with a `Retry-After` header (seconds).
+- **Temporary passwords.** When `user.mustChangePassword` is true, every call outside `/auth/*` returns `403` with `"code": "PASSWORD_CHANGE_REQUIRED"`. Send the user to a change-password screen and call `/auth/change-password`; use the token pair it returns.
+- **Password policy.** At least 8 characters, with a letter and a number.
+- **Revocation.** Changing a password, an administrator resetting it, `/auth/logout-all`, or deactivating the account invalidates every access and refresh token already issued. Treat `401` after a failed refresh as signed out.
+
+`/account/change-password` is an alias of `/auth/change-password`.
+
+Portal logins are created automatically when a student is admitted, with a temporary password that must be changed at first sign-in:
+- student: date of birth as `DDMMYYYY`
 - parent: email (or `<phone>@parent.school` if none was given), password is the 10-digit phone number
+
+Staff can issue new temporary passwords for a student and their guardians with `POST /students/{id}/reset-login` (roles `SUPER_ADMIN`, `SCHOOL_ADMIN`, `PRINCIPAL`). The response lists each login and its temporary password once.
 
 ## Parent / student portal
 

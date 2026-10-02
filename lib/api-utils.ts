@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { bearerToken, verifyAccessToken } from '@/lib/jwt'
+import prisma from '@/lib/prisma'
 import { ZodError, ZodSchema } from 'zod'
 import { UserRole } from '@prisma/client'
 
@@ -11,6 +12,7 @@ export interface SessionUser {
   role: UserRole
   schoolId?: string
   isActive: boolean
+  mustChangePassword?: boolean
 }
 
 export interface AuthenticatedSession {
@@ -54,15 +56,35 @@ export function serverErrorResponse(message = 'Internal server error') {
 // Authentication helper
 // Authentication helper: every client (web frontend, mobile apps) sends
 // `Authorization: Bearer <accessToken>` obtained from POST /api/auth/login.
+// The user row is re-read on every request so that deactivating an account,
+// changing a password or "sign out everywhere" takes effect immediately.
 export async function requireAuth(request: NextRequest): Promise<AuthenticatedSession | null> {
   const token = bearerToken(request.headers.get('authorization'))
-  const user = token ? await verifyAccessToken(token) : null
-  if (!user) return null
+  const claims = token ? await verifyAccessToken(token) : null
+  if (!claims) return null
+
+  const user = await prisma.user.findUnique({
+    where: { id: claims.id },
+    select: { isActive: true, tokenVersion: true, mustChangePassword: true, role: true, schoolId: true },
+  })
+  if (!user || !user.isActive || user.tokenVersion !== claims.tokenVersion) return null
+
   return {
-    user: { ...user, role: user.role as UserRole, isActive: true },
+    user: {
+      id: claims.id,
+      email: claims.email,
+      name: claims.name,
+      role: user.role,
+      schoolId: user.schoolId,
+      isActive: true,
+      mustChangePassword: user.mustChangePassword,
+    },
     expires: '',
   }
 }
+
+// Endpoints a user may still call while a password change is pending
+const passwordChangeExempt = /^\/api(\/v1)?\/(auth|account)(\/|$)/
 
 // Role-based access control
 const roleHierarchy: Record<UserRole, number> = {
@@ -120,14 +142,8 @@ const modulePermissions: Record<string, UserRole[]> = {
 
 export function hasModuleAccess(userRole: UserRole, module: string): boolean {
   const allowedRoles = modulePermissions[module]
-  console.log(`[hasModuleAccess] userRole: "${userRole}", module: "${module}", allowedRoles:`, allowedRoles)
-  if (!allowedRoles) {
-    console.log(`[hasModuleAccess] No allowedRoles for module, checking SUPER_ADMIN`)
-    return userRole === 'SUPER_ADMIN'
-  }
-  const hasAccess = allowedRoles.includes(userRole)
-  console.log(`[hasModuleAccess] Result: ${hasAccess}`)
-  return hasAccess
+  if (!allowedRoles) return userRole === 'SUPER_ADMIN'
+  return allowedRoles.includes(userRole)
 }
 
 // Validation helper
@@ -242,6 +258,14 @@ export function withApiHandler(
         return unauthorizedResponse()
       }
 
+      // Auto-created and admin-reset accounts must choose their own password first
+      if (session?.user.mustChangePassword && !passwordChangeExempt.test(request.nextUrl.pathname)) {
+        return NextResponse.json(
+          { success: false, error: 'Password change required', code: 'PASSWORD_CHANGE_REQUIRED' },
+          { status: 403 }
+        )
+      }
+
       // Check role-based access
       if (session && options.requiredRoles?.length) {
         if (!hasRole(session.user.role, options.requiredRoles)) {
@@ -252,7 +276,6 @@ export function withApiHandler(
       // Check module access
       if (session && options.module) {
         if (!hasModuleAccess(session.user.role, options.module)) {
-          console.error(`Access denied: role=${session.user.role}, module=${options.module}`)
           return forbiddenResponse(`No access to ${options.module} module (role: ${session.user.role})`)
         }
       }
@@ -275,5 +298,6 @@ export function withApiHandler(
 export function getSchoolFilter(session: AuthenticatedSession | null) {
   if (!session) return {}
   if (session.user.role === 'SUPER_ADMIN') return {}
-  return { schoolId: session.user.schoolId }
+  // Never fall back to "no filter": a user without a school sees nothing
+  return { schoolId: session.user.schoolId || '__no_school__' }
 }

@@ -202,18 +202,22 @@ enum UserRole {
 }
 
 model User {
-  id        String    @id @default(cuid())
-  schoolId  String
-  email     String    @unique
-  phone     String?
-  password  String
-  firstName String
-  lastName  String
-  role      UserRole
-  isActive  Boolean   @default(true)
-  lastLogin DateTime?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id                 String    @id @default(cuid())
+  schoolId           String
+  email              String    @unique
+  phone              String?
+  password           String
+  firstName          String
+  lastName           String
+  role               UserRole
+  isActive           Boolean   @default(true)
+  lastLogin          DateTime?
+  // Set for auto-created and admin-reset accounts; cleared when the user picks a password
+  mustChangePassword Boolean   @default(false)
+  // Bumped on password change / reset / sign-out-everywhere; tokens carrying an older value are rejected
+  tokenVersion       Int       @default(0)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   school           School           @relation(fields: [schoolId], references: [id], onDelete: Cascade)
   customRoles      UserCustomRole[]
@@ -1679,4 +1683,15 @@ model Driver {
 
   @@index([schoolId])
   @@map("drivers")
+}
+
+// Failed-login counters used for rate limiting (keyed by email and by IP)
+model AuthAttempt {
+  key         String    @id
+  count       Int       @default(0)
+  windowStart DateTime  @default(now())
+  lockedUntil DateTime?
+  updatedAt   DateTime  @updatedAt
+
+  @@map("auth_attempts")
 }

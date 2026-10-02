@@ -16,6 +16,7 @@ export const GET = withApiHandler(
         role: true,
         isActive: true,
         lastLogin: true,
+        mustChangePassword: true,
         school: { select: { id: true, name: true } },
       },
     })

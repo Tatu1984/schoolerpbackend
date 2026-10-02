@@ -11,29 +11,37 @@
     "start": "next start -p 4000",
     "typecheck": "tsc --noEmit",
     "postinstall": "prisma generate",
-    "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:seed": "node prisma/seed.js",
     "db:seed:demo": "node prisma/seed-demo.js",
     "db:studio": "prisma studio",
-    "db:check": "node check-db.js"
+    "db:check": "node check-db.js",
+    "test": "vitest run",
+    "db:deploy": "prisma migrate deploy",
+    "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
     "@prisma/client": "5.20.0",
     "bcryptjs": "2.4.3",
     "date-fns": "3.0.6",
     "jose": "5.9.6",
-    "next": "14.1.0",
-    "react": "18.3.1",
-    "react-dom": "18.3.1",
+    "next": "^15.5.27",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "zod": "3.23.8"
   },
   "devDependencies": {
     "@types/bcryptjs": "2.4.6",
     "@types/node": "20.10.0",
-    "@types/react": "18.2.45",
-    "@types/react-dom": "18.2.18",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "prisma": "5.20.0",
-    "typescript": "5.3.3"
+    "typescript": "5.3.3",
+    "vitest": "^3.2.7"
+  },
+  "overrides": {
+    "next": {
+      "postcss": "^8.5.23"
+    }
   }
 }
