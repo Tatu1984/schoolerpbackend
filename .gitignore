@@ -12,7 +12,7 @@ next-env.d.ts
 .env*.local
 
 # local data backups written by /api/security/backups
-backups/
+/backups/
 
 # misc
 .DS_Store
